@@ -10,19 +10,20 @@ def loadCorpus(filename):
 	for line in fh:
 		yield line.rstrip().split()
 
-def estimateLm(corpus):
+def estimateLm(corpus, ngramSize = maxNgramSize):
 	lm = defaultdict(float)
+	lm[sizeKey] = ngramSize
 	
 	for tokens in corpus:
-		for idx in range(-maxNgramSize + 1, len(tokens)):
+		for idx in range(-ngramSize + 1, len(tokens)):
 			tgt = lm
 			
-			for ngramSize in range(maxNgramSize):
+			for ngramIter in range(ngramSize):
 				tgt[countKey] += 1.0
 				
-				token = getToken(tokens, idx + ngramSize)
+				token = getToken(tokens, idx + ngramIter)
 				
-				if ngramSize == maxNgramSize - 1:
+				if ngramIter == ngramSize - 1:
 					tgt[token] += 1.0
 				else:
 					if not token in tgt:
@@ -36,7 +37,7 @@ if __name__ == "__main__":
 	try:
 		corpus = loadCorpus(sys.argv[1])
 		
-		lm = estimateLm(corpus)
+		lm = estimateLm(corpus, ngramSize = maxNgramSize)
 		
 		savelm(lm, sys.argv[2])
 		
