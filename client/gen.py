@@ -23,10 +23,9 @@ def getHistDistr(lm, ngram):
 	total = currRes[countKey]
 	
 	try:
-		distr = dict([ (k, currRes[k][countKey] / float(total)) for k in currRes if k != countKey ])
+		distr = dict([ (k, currRes[k][countKey] / float(total)) for k in currRes if not k in (countKey, sizeKey, sntStartKey)])
 	except TypeError:
-		distr = dict([ (k, currRes[k] / float(total)) for k in currRes if k != countKey ])
-		
+		distr = dict([ (k, currRes[k] / float(total)) for k in currRes if not k in (countKey, sizeKey, sntStartKey)])
 	
 	return distr
 
@@ -47,7 +46,6 @@ def getRandomFromDistr(distr):
 		if rndVal < baseSum:
 			return k
 	
-	#raise Exception("Oops " + str(rndVal) + ", " + str(baseSum) + "; " + str(distr))
 	return "</s>";
 
 def getPrediction(output, lms, weights, ngramSize):
@@ -77,7 +75,22 @@ def generate(lms, weights, startWith = [], ngramSize = maxNgramSize - 1):
 		
 		prediction = getPrediction(output, lms, weights, ngramSize)
 	
-	return " ".join(output)
+	result = " ".join(output)
+	
+	result = re.sub(r'([0-9]) : ([0-9])', r'\1:\2', result)
+	result = re.sub(r' ([.,?!;:])', r'\1', result)
+	result = re.sub(r'(^ *|[.,?!;:] +)([a-z])', lambda pat: pat.group(1) + pat.group(2).upper(), result)
+	result = re.sub(r'&#91;', '[', result)
+	result = re.sub(r'&#93;', ']', result)
+	result = re.sub(r'&amp;', '&', result)
+	result = re.sub(r'&apos;', '\'', result)
+	result = re.sub(r'&gt;', '>', result)
+	result = re.sub(r'&lt;', '<', result)
+	result = re.sub(r'&quot;', '"', result)
+
+	result = result.rstrip()
+	
+	return result
 
 def idFromName(name):
 	res = re.match(r'[A-Za-z]+', name)
@@ -89,37 +102,74 @@ def idFromName(name):
 def test(lm):
 	print generate([lm], [1.0])
 
-class Handler(SocketServer.BaseRequestHandler):
-	def handle(self):
-		self.data = self.request.recv(1024).strip()
-		print "request:", self.data
+def sizeOk(lms, size):
+	for lm in lms:
+		if lm[sizeKey] - 1 < size:
+			return False
+	
+	return True
+
+def handleLine(line, lms, ids, v = True):
+	print "request:", line
+	
+	if line == "identify":
+		if v:
+			print "asked for the id, gave", ids
+		return ids
+	else:
+		toks = line.split()
+		weights = [float(strWeight) for strWeight in toks[0].split(',')]
 		
-		if self.data == "identify":
-			result = self.server.ids
-			print "asked for the id, gave", result
-		else:
-			lms = self.server.lms
-			
-			toks = self.data.split()
-			weights = [float(strWeight) for strWeight in toks[0].split(',')]
-			
-			ngramSize = int(toks[1])
-			
+		ngramSize = int(toks[1])
+		
+		if sizeOk(lms, ngramSize):
 			startWith = toks[2:]
 			
 			result = generate(lms, weights, startWith = startWith, ngramSize = ngramSize)
-			print "asked for a new sentence, gave", result
+			if v:
+				print "asked for a new sentence, gave", result
+			return result
+		else:
+			if v:
+				print "asked with history bigger than the LMs we have, fail"
+			return "FAIL"
+
+class Handler(SocketServer.BaseRequestHandler):
+	def handle(self):
+		self.data = self.request.recv(1024).strip()
+		
+		result = handleLine(self.data, self.server.lms, self.server.ids)
 		
 		self.request.sendall(result)
 
 if __name__ == "__main__":
-	print time.strftime("%H:%M:%S") + " loading"
-	lms = [loadlm(filename) for filename in sys.argv[1:]]
-	ids = " ".join([idFromName(name) for name in sys.argv[1:]])
-	
-	server = SocketServer.TCPServer(("localhost", 13579), Handler)
-	server.lms = lms
-	server.ids = ids
-	
-	print time.strftime("%H:%M:%S") + " serving"
-	server.serve_forever()
+	try:
+		lmFileList = sys.argv[1:]
+		
+		if lmFileList[0][0] == '-':
+			lmFileList = lmFileList[1:]
+			doStdin = True
+		else:
+			doStdin = False
+		
+		print time.strftime("%H:%M:%S") + " loading"
+		
+		lms = [loadlm(filename) for filename in lmFileList]
+		
+		ids = " ".join([idFromName(name) for name in lmFileList])
+		
+		print time.strftime("%H:%M:%S") + " serving"
+		if doStdin:
+			#for line in sys.stdin:
+				#handleLine(line.rstrip(), lms, ids)
+			for x in range(20):
+				print handleLine("1.0 1", lms, ids, v = False)
+		else:
+			server = SocketServer.TCPServer(("localhost", 13579), Handler)
+			server.lms = lms
+			server.ids = ids
+			
+			server.serve_forever()
+	except (IndexError):
+		sys.stderr.write("Usage: gen.py [-stdin] lm1 [lm2 [...]]\n")
+		sys.exit(-1)

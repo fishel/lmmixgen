@@ -1,8 +1,9 @@
 from pickle import dump, load, HIGHEST_PROTOCOL
 
-maxNgramSize = 3
+maxNgramSize = 4
 
 countKey = '___'
+sizeKey = '___size'
 
 sntStartKey = '<s>'
 sntEndKey = '</s>'
