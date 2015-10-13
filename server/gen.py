@@ -4,13 +4,63 @@ import re
 import sys
 import time
 
-from json import dumps
-
 from collections import defaultdict
 
 from common import *
 
+def combKey(key, subkey):
+	return key + " " + subkey if subkey else key
+
+def tofloat(lm):
+	result = dict()
+	result[sizeKey] = lm[sizeKey]
+	
+	for k in lm:
+		if k != sizeKey:
+			result[k] = dict([(p, lm[k][p] / lm[k][countKey]) for p in lm[k] if not p in (countKey, sntStartKey)])
+	
+	return result
+
+def filter(lm, cutoff = 10):
+	result = dict()
+	result[sizeKey] = lm[sizeKey]
+	
+	for k in lm:
+		if k != sizeKey:
+			result[k] = dict(sorted([(p, lm[k][p]) for p in lm[k]], key = lambda z: -z[1])[:cutoff])
+	
+	return result
+
+def flatten(lm):
+	result = dict()
+	result[""] = dict()
+	result[""][countKey] = lm[countKey]
+	
+	for key in lm:
+		if not key in (countKey, sizeKey):
+			# flat dictionary:
+			try:
+				_ = lm[key][countKey]
+			except (TypeError):
+				return {"": lm}
+			
+			# non-flat dictionary
+			leaf = flatten(lm[key])
+			result[""][key] = lm[key][countKey]
+			
+			#leaf is a flat dictionary
+			for subkey in leaf:
+				result[combKey(key, subkey)] = leaf[subkey]
+	
+	if sizeKey in lm:
+		result[sizeKey] = lm[sizeKey]
+	
+	return result
+
 def getHistDistr(lm, ngram):
+	return lm[" ".join(ngram)]
+
+def xgetHistDistr(lm, ngram):
 	currRes = lm
 	
 	for token in ngram:
@@ -80,6 +130,14 @@ def generate(lms, weights, startWith = [], ngramSize = maxNgramSize - 1):
 	result = re.sub(r'([0-9]) : ([0-9])', r'\1:\2', result)
 	result = re.sub(r' ([.,?!;:])', r'\1', result)
 	result = re.sub(r'(^ *|[.,?!;:] +)([a-z])', lambda pat: pat.group(1) + pat.group(2).upper(), result)
+	result = re.sub(r'&#91;', '[', result)
+	result = re.sub(r'&#93;', ']', result)
+	result = re.sub(r'&amp;', '&', result)
+	result = re.sub(r'&apos;', '\'', result)
+	result = re.sub(r'&gt;', '>', result)
+	result = re.sub(r'&lt;', '<', result)
+	result = re.sub(r'&quot;', '"', result)
+
 	result = result.rstrip()
 	
 	return result
@@ -95,6 +153,9 @@ def test(lm):
 	print generate([lm], [1.0])
 
 def sizeOk(lms, size):
+	if size <= 0:
+		return False
+		
 	for lm in lms:
 		if lm[sizeKey] - 1 < size:
 			return False
@@ -123,7 +184,7 @@ def handleLine(line, lms, ids, v = True):
 			return result
 		else:
 			if v:
-				print "asked with history bigger than the LMs we have, fail"
+				print "asked with history bigger than the LMs we have (or <= 0), fail"
 			return "FAIL"
 
 class Handler(SocketServer.BaseRequestHandler):
@@ -134,7 +195,7 @@ class Handler(SocketServer.BaseRequestHandler):
 		
 		self.request.sendall(result)
 
-if __name__ == "__main__":
+def startServerOrFilter():
 	try:
 		lmFileList = sys.argv[1:]
 		
@@ -146,21 +207,24 @@ if __name__ == "__main__":
 		
 		print time.strftime("%H:%M:%S") + " loading"
 		
-		lms = [loadlm(filename) for filename in lmFileList]
+		lms = [filter(tofloat(flatten(loadlm(filename))), cutoff=30) for filename in lmFileList]
 		
 		ids = " ".join([idFromName(name) for name in lmFileList])
 		
+		print time.strftime("%H:%M:%S") + " serving"
 		if doStdin:
-			print time.strftime("%H:%M:%S") + " serving"
 			for line in sys.stdin:
-				print handleLine(line.rstrip(), lms, ids)
+				handleLine(line.rstrip(), lms, ids)
+			print time.strftime("%H:%M:%S") + " done"
 		else:
 			server = SocketServer.TCPServer(("localhost", 13579), Handler)
 			server.lms = lms
 			server.ids = ids
 			
-			print time.strftime("%H:%M:%S") + " serving"
 			server.serve_forever()
 	except (IndexError):
 		sys.stderr.write("Usage: gen.py [-stdin] lm1 [lm2 [...]]\n")
 		sys.exit(-1)
+
+if __name__ == "__main__":
+	startServerOrFilter()
