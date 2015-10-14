@@ -1,4 +1,5 @@
 import random
+import os.path
 import SocketServer
 import re
 import sys
@@ -143,7 +144,8 @@ def generate(lms, weights, startWith = [], ngramSize = maxNgramSize - 1):
 	return result
 
 def idFromName(name):
-	res = re.match(r'[A-Za-z]+', name)
+	fname = os.path.basename(name)
+	res = re.match(r'[A-Za-z]+', fname)
 	if res:
 		return res.group(0)
 	else:
@@ -163,11 +165,11 @@ def sizeOk(lms, size):
 	return True
 
 def handleLine(line, lms, ids, v = True):
-	print "request:", line
+	log("request: " + line)
 	
 	if line == "identify":
 		if v:
-			print "asked for the id, gave", ids
+			log("asked for the id, gave '" + ids + "'")
 		return ids
 	else:
 		toks = line.split()
@@ -180,11 +182,11 @@ def handleLine(line, lms, ids, v = True):
 			
 			result = generate(lms, weights, startWith = startWith, ngramSize = ngramSize)
 			if v:
-				print "asked for a new sentence, gave", result
+				log("asked for a new sentence, gave '" + result + "'")
 			return result
 		else:
 			if v:
-				print "asked with history bigger than the LMs we have (or <= 0), fail"
+				log("asked with history bigger than the LMs we have (or <= 0), fail")
 			return "FAIL"
 
 class Handler(SocketServer.BaseRequestHandler):
@@ -205,17 +207,19 @@ def startServerOrFilter():
 		else:
 			doStdin = False
 		
-		print time.strftime("%H:%M:%S") + " loading"
+		log("loading")
 		
-		lms = [filter(tofloat(flatten(loadlm(filename))), cutoff=30) for filename in lmFileList]
+		lms = list()
+		for filename in lmFileList:
+			lms += [tofloat(filter(flatten(loadlm(filename)), cutoff=30))]
 		
 		ids = " ".join([idFromName(name) for name in lmFileList])
 		
-		print time.strftime("%H:%M:%S") + " serving"
+		log("serving")
 		if doStdin:
 			for line in sys.stdin:
 				handleLine(line.rstrip(), lms, ids)
-			print time.strftime("%H:%M:%S") + " done"
+			log("done")
 		else:
 			server = SocketServer.TCPServer(("localhost", 13579), Handler)
 			server.lms = lms

@@ -1,4 +1,5 @@
 import sys
+import time
 
 from collections import defaultdict
 
@@ -14,7 +15,11 @@ def estimateLm(corpus, ngramSize = maxNgramSize):
 	lm = defaultdict(float)
 	lm[sizeKey] = ngramSize
 	
+	i = 0
 	for tokens in corpus:
+		i += 1
+		if not i % 100000:
+			log("line " + str(i))
 		for idx in range(-ngramSize + 1, len(tokens)):
 			tgt = lm
 			
@@ -30,18 +35,22 @@ def estimateLm(corpus, ngramSize = maxNgramSize):
 						tgt[token] = defaultdict(float)
 					
 					tgt = tgt[token]
+	if i % 100000:
+		log("line " + str(i))
 	
 	return lm
 
 if __name__ == "__main__":
 	try:
+		log("loading")
 		corpus = loadCorpus(sys.argv[1])
 		
 		lm = estimateLm(corpus, ngramSize = maxNgramSize)
 		
+		log("saving")
 		savelm(lm, sys.argv[2])
 		
-		print "ok"
+		log("done")
 	except IndexError:
 		sys.stderr.write("Usage: createlm.py  corpus-file.txt  lm-file.txt\n")
 		sys.exit(-1)

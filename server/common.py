@@ -1,3 +1,5 @@
+import time
+import sys
 from pickle import dump, load, HIGHEST_PROTOCOL
 
 maxNgramSize = 4
@@ -7,6 +9,9 @@ sizeKey = '___size'
 
 sntStartKey = '<s>'
 sntEndKey = '</s>'
+
+def log(msg):
+	sys.stderr.write(time.strftime("%H:%M:%S") + " " + msg + "\n")
 
 def getToken(sentence, idx):
 	if idx < 0:
