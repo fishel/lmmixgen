@@ -7,6 +7,8 @@ import time
 
 from collections import defaultdict
 
+from json import dumps
+
 from common import *
 
 def combKey(key, subkey):
@@ -59,7 +61,12 @@ def flatten(lm):
 	return result
 
 def getHistDistr(lm, ngram):
-	return lm[" ".join(ngram)]
+	try:
+		return lm[" ".join(ngram)]
+	except KeyError as e:
+		return dict()
+		#print dumps(lm, sort_keys=True, indent=3)
+		#raise e
 
 def xgetHistDistr(lm, ngram):
 	currRes = lm
@@ -197,38 +204,49 @@ class Handler(SocketServer.BaseRequestHandler):
 		
 		self.request.sendall(result)
 
-def startServerOrFilter():
+def loadLms(paths):
+	log("loading")
+	
+	lms = list()
+	for filename in paths:
+		lms += [tofloat(filter(flatten(loadlm(filename)), cutoff=30))]
+		log("loaded " + filename)
+	
+	return lms
+
+def getIds(paths):
+	return " ".join([idFromName(name) for name in paths])
+	
+def stdinFilter(lms, ids):
+	log("serving")
+	for line in sys.stdin:
+		handleLine(line.rstrip(), lms, ids)
+	log("done")
+
+def startServer(lms, ids):
+	log("serving")
+	server = SocketServer.TCPServer(("localhost", 13579), Handler)
+	server.lms = lms
+	server.ids = ids
+	
+	server.serve_forever()
+
+def doArgs():
+	if sys.argv[1][0] == '-':
+		return sys.argv[2:], True
+	else:
+		return sys.argv[1:], False
+
+if __name__ == "__main__":
 	try:
-		lmFileList = sys.argv[1:]
+		lmFileList, doStdin = doArgs()
+		lms = loadLms(lmFileList)
+		ids = getIds(lmFileList)
 		
-		if lmFileList[0][0] == '-':
-			lmFileList = lmFileList[1:]
-			doStdin = True
-		else:
-			doStdin = False
-		
-		log("loading")
-		
-		lms = list()
-		for filename in lmFileList:
-			lms += [tofloat(filter(flatten(loadlm(filename)), cutoff=30))]
-		
-		ids = " ".join([idFromName(name) for name in lmFileList])
-		
-		log("serving")
 		if doStdin:
-			for line in sys.stdin:
-				handleLine(line.rstrip(), lms, ids)
-			log("done")
+			stdinFilter(lms, ids)
 		else:
-			server = SocketServer.TCPServer(("localhost", 13579), Handler)
-			server.lms = lms
-			server.ids = ids
-			
-			server.serve_forever()
+			startServer(lms, ids)
 	except (IndexError):
 		sys.stderr.write("Usage: gen.py [-stdin] lm1 [lm2 [...]]\n")
 		sys.exit(-1)
-
-if __name__ == "__main__":
-	startServerOrFilter()

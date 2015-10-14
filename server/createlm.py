@@ -6,7 +6,7 @@ from collections import defaultdict
 from common import *
 
 def loadCorpus(filename):
-	fh = open(sys.argv[1], 'r')
+	fh = open(filename, 'r')
 	
 	for line in fh:
 		yield line.rstrip().split()
