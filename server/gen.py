@@ -1,67 +1,16 @@
 import random
-import os.path
 import SocketServer
 import re
 import sys
 import time
 
+from json import dumps
+
 from collections import defaultdict
 
 from common import *
 
-def combKey(key, subkey):
-	return key + " " + subkey if subkey else key
-
-def tofloat(lm):
-	result = dict()
-	result[sizeKey] = lm[sizeKey]
-	
-	for k in lm:
-		if k != sizeKey:
-			result[k] = dict([(p, lm[k][p] / lm[k][countKey]) for p in lm[k] if not p in (countKey, sntStartKey)])
-	
-	return result
-
-def filter(lm, cutoff = 10):
-	result = dict()
-	result[sizeKey] = lm[sizeKey]
-	
-	for k in lm:
-		if k != sizeKey:
-			result[k] = dict(sorted([(p, lm[k][p]) for p in lm[k]], key = lambda z: -z[1])[:cutoff])
-	
-	return result
-
-def flatten(lm):
-	result = dict()
-	result[""] = dict()
-	result[""][countKey] = lm[countKey]
-	
-	for key in lm:
-		if not key in (countKey, sizeKey):
-			# flat dictionary:
-			try:
-				_ = lm[key][countKey]
-			except (TypeError):
-				return {"": lm}
-			
-			# non-flat dictionary
-			leaf = flatten(lm[key])
-			result[""][key] = lm[key][countKey]
-			
-			#leaf is a flat dictionary
-			for subkey in leaf:
-				result[combKey(key, subkey)] = leaf[subkey]
-	
-	if sizeKey in lm:
-		result[sizeKey] = lm[sizeKey]
-	
-	return result
-
 def getHistDistr(lm, ngram):
-	return lm[" ".join(ngram)]
-
-def xgetHistDistr(lm, ngram):
 	currRes = lm
 	
 	for token in ngram:
@@ -144,8 +93,7 @@ def generate(lms, weights, startWith = [], ngramSize = maxNgramSize - 1):
 	return result
 
 def idFromName(name):
-	fname = os.path.basename(name)
-	res = re.match(r'[A-Za-z]+', fname)
+	res = re.match(r'[A-Za-z]+', name)
 	if res:
 		return res.group(0)
 	else:
@@ -155,9 +103,6 @@ def test(lm):
 	print generate([lm], [1.0])
 
 def sizeOk(lms, size):
-	if size <= 0:
-		return False
-		
 	for lm in lms:
 		if lm[sizeKey] - 1 < size:
 			return False
@@ -165,11 +110,11 @@ def sizeOk(lms, size):
 	return True
 
 def handleLine(line, lms, ids, v = True):
-	log("request: " + line)
+	print "request:", line
 	
 	if line == "identify":
 		if v:
-			log("asked for the id, gave '" + ids + "'")
+			print "asked for the id, gave", ids
 		return ids
 	else:
 		toks = line.split()
@@ -182,11 +127,11 @@ def handleLine(line, lms, ids, v = True):
 			
 			result = generate(lms, weights, startWith = startWith, ngramSize = ngramSize)
 			if v:
-				log("asked for a new sentence, gave '" + result + "'")
+				print "asked for a new sentence, gave", result
 			return result
 		else:
 			if v:
-				log("asked with history bigger than the LMs we have (or <= 0), fail")
+				print "asked with history bigger than the LMs we have, fail"
 			return "FAIL"
 
 class Handler(SocketServer.BaseRequestHandler):
@@ -197,7 +142,7 @@ class Handler(SocketServer.BaseRequestHandler):
 		
 		self.request.sendall(result)
 
-def startServerOrFilter():
+if __name__ == "__main__":
 	try:
 		lmFileList = sys.argv[1:]
 		
@@ -207,19 +152,18 @@ def startServerOrFilter():
 		else:
 			doStdin = False
 		
-		log("loading")
+		print time.strftime("%H:%M:%S") + " loading"
 		
-		lms = list()
-		for filename in lmFileList:
-			lms += [tofloat(filter(flatten(loadlm(filename)), cutoff=30))]
+		lms = [loadlm(filename) for filename in lmFileList]
 		
 		ids = " ".join([idFromName(name) for name in lmFileList])
 		
-		log("serving")
+		print time.strftime("%H:%M:%S") + " serving"
 		if doStdin:
-			for line in sys.stdin:
-				handleLine(line.rstrip(), lms, ids)
-			log("done")
+			#for line in sys.stdin:
+				#handleLine(line.rstrip(), lms, ids)
+			for x in range(20):
+				print handleLine("1.0 1", lms, ids, v = False)
 		else:
 			server = SocketServer.TCPServer(("localhost", 13579), Handler)
 			server.lms = lms
@@ -229,6 +173,3 @@ def startServerOrFilter():
 	except (IndexError):
 		sys.stderr.write("Usage: gen.py [-stdin] lm1 [lm2 [...]]\n")
 		sys.exit(-1)
-
-if __name__ == "__main__":
-	startServerOrFilter()
